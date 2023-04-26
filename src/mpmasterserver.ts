@@ -20,6 +20,12 @@ interface MPServer {
     }
 }
 
+interface ArrangedClient {
+    address: string,
+    port: number,
+    id: number
+}
+
 enum PacketType {
     MasterServerGameTypesRequest = 2,
     MasterServerGameTypesResponse = 4,
@@ -34,18 +40,21 @@ enum PacketType {
     GameHeartbeat = 22,
     MasterServerInfoRequest = 24,
     MasterServerInfoResponse = 26,
-    MasterServerArrangedConnectRequest = 46,
-    MasterServerArrangedConnectResponse = 48,
-    MasterServerAcceptArrangedConnectRequest = 50,
-    MasterServerAcceptArrangedConnectResponse = 52,
+    MasterServerRequestArrangedConnection = 46,
+    MasterServerClientRequestedArrangedConnection = 48,
+    MasterServerAcceptArrangedConnection = 50,
+    MasterServerArrangedConnectionAccepted = 52,
     MasterServerRejectArrangedConnectRequest = 54,
     MasterServerRejectArrangedConnectResponse = 56,
 }
+
+let currentClientId = 0;
 
 // Basically the master server for multiplayer, gives out a list of available servers to the game
 export class MPMasterServer {
     socket: udp.Socket
     serverList: MPServer[] = []
+    arrangedClients: ArrangedClient[] = []
 
     // Starts the Multiplayer Master Server
     initialize() {
@@ -233,18 +242,20 @@ export class MPMasterServer {
             }
         }
 
-        if (cmd === PacketType.MasterServerArrangedConnectRequest) {
+        if (cmd === PacketType.MasterServerRequestArrangedConnection) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
             let connectserver = this.serverList.find(x => x.address === address);
             if (connectserver == null) {
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerRejectArrangedConnectResponse);
+                buf.writeUInt8(0); // Key
+                buf.writeUInt32(0); // Flags
                 buf.writeUInt8(0); // 0 = unknown host
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, rinfo.port, rinfo.address); // MasterServerRejectArrangedConnectRequest
             } else {
-                console.log(`${rinfo.address} Requesting connection to ${connectserver.address}:${connectserver.port}`);
+                console.log(`${rinfo.address}:${rinfo.port} Requesting connection to ${connectserver.address}:${connectserver.port}`);
 
                 let possibleAddresses = [
                     {
@@ -256,9 +267,20 @@ export class MPMasterServer {
                         port: rinfo.port,
                     }
                 ];
+
+                let clientid = currentClientId++;
+
+                this.arrangedClients.push({
+                    address: rinfo.address,
+                    port: rinfo.port,
+                    id: clientid
+                });
                 
                 let buf = new BufferWriter();
-                buf.writeUInt8(PacketType.MasterServerArrangedConnectResponse);
+                buf.writeUInt8(PacketType.MasterServerClientRequestedArrangedConnection);
+                buf.writeUInt8(0); // Key
+                buf.writeUInt32(0); // Flags
+                buf.writeUInt16(clientid);
                 buf.writeUInt8(possibleAddresses.length);
                 for (let addr of possibleAddresses) {
                     let ipbits = addr.address.split('.');
@@ -268,11 +290,40 @@ export class MPMasterServer {
                     buf.writeUInt8(Number.parseInt(ipbits[3]));
                     buf.writeUInt16(addr.port);
                 }
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, connectserver.port, connectserver.address);
             }
         }
 
-        if (cmd === PacketType.MasterServerAcceptArrangedConnectRequest) {
+        if (cmd === PacketType.MasterServerAcceptArrangedConnection) {
+            let clientId = br.readU16();
+            let client = this.arrangedClients.find(x => x.id === clientId);
+            let possibleAddresses = [
+                {
+                    address: rinfo.address,
+                    port: rinfo.port + 1,
+                },
+                {
+                    address: rinfo.address,
+                    port: rinfo.port,
+                }
+            ];
 
+            let buf = new BufferWriter();
+            buf.writeUInt8(PacketType.MasterServerArrangedConnectionAccepted);
+            buf.writeUInt8(0); // Key
+            buf.writeUInt32(0); // Flags
+            buf.writeUInt8(possibleAddresses.length);
+            for (let addr of possibleAddresses) {
+                let ipbits = addr.address.split('.');
+                buf.writeUInt8(Number.parseInt(ipbits[0]));
+                buf.writeUInt8(Number.parseInt(ipbits[1]));
+                buf.writeUInt8(Number.parseInt(ipbits[2]));
+                buf.writeUInt8(Number.parseInt(ipbits[3]));
+                buf.writeUInt16(addr.port);
+            }
+            let sendbuf = buf.getBuffer();
+            this.socket.send(sendbuf, client.port, client.address);
         }
 
         if (cmd === PacketType.MasterServerRejectArrangedConnectRequest) {
