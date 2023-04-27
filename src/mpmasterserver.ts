@@ -396,7 +396,7 @@ export class MPMasterServer {
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
             let connectserver = this.serverList.find(x => x.address === address);
             if (connectserver != null) {
-                console.log(`Requesting info from ${address}`);
+                console.log(`Requesting info from ${address} key ${key} ${session} ${flags}`);
                 this.gameInfoRequests.set(key, {
                     address: rinfo.address,
                     port: rinfo.port,
@@ -415,6 +415,7 @@ export class MPMasterServer {
             let flags = br.readU8();
             let key = br.readU32();
             let pr = this.gamePingRequests.get(key);
+            console.log(`Key ${key} ${flags}`);
             if (pr != null) {
                 console.log(`Got ping response for ${pr.address}`);
                 let ab = Buffer.from(msg.buffer);
@@ -439,6 +440,7 @@ export class MPMasterServer {
             let flags = br.readU8();
             let key = br.readU32();
             let pr = this.gameInfoRequests.get(key);
+            console.log(`Key ${key} ${flags}`);
             if (pr != null) {
                 console.log(`Got game info response for ${pr.address}`);
                 let ab = Buffer.from(msg.buffer);
