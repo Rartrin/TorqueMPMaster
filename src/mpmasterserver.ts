@@ -63,7 +63,7 @@ export class MPMasterServer {
         this.socket.on('message', (msg, rinfo) => this.onMessage(msg, rinfo));
         this.socket.on('error', (err) => this.onError(err));
 
-        let hostsplit = 'localhost:1337'.split(':'); // Naive but works for now
+        let hostsplit = '0.0.0.0:1337'.split(':'); // Naive but works for now
         let hostname = hostsplit[0];
         let port = Number.parseInt(hostsplit[1]);
 
@@ -86,7 +86,7 @@ export class MPMasterServer {
 
         let cmd = br.readU8();
 
-        console.log(`${cmd} command received`);
+        console.log(`${cmd} command received from ${rinfo.address}:${rinfo.port}`);
 
         if (cmd === PacketType.MasterServerListRequest) { //MasterServerListRequest
 
