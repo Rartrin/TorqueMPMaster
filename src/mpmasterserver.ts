@@ -418,7 +418,6 @@ export class MPMasterServer {
             console.log(`Key ${key} ${flags}`);
             if (pr != null) {
                 console.log(`Got ping response for ${pr.address}`);
-                let ab = Buffer.from(msg.buffer);
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerGamePingResponse);
                 let ipbits = pr.reqip;
@@ -429,7 +428,7 @@ export class MPMasterServer {
                 buf.writeUInt8(ipbits[2]);
                 buf.writeUInt8(ipbits[3]);
                 buf.writeUInt16(pr.reqport);
-                buf.buffers.push(ab);
+                buf.appendBuffer(msg);
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, pr.port, pr.address);
                 this.gamePingRequests.delete(key);
@@ -443,7 +442,6 @@ export class MPMasterServer {
             console.log(`Key ${key} ${flags}`);
             if (pr != null) {
                 console.log(`Got game info response for ${pr.address}`);
-                let ab = Buffer.from(msg.buffer);
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerGamePingResponse);
                 let ipbits = pr.reqip;
@@ -454,7 +452,7 @@ export class MPMasterServer {
                 buf.writeUInt8(ipbits[2]);
                 buf.writeUInt8(ipbits[3]);
                 buf.writeUInt16(pr.reqport);
-                buf.buffers.push(ab);
+                buf.appendBuffer(msg);
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, pr.port, pr.address);
                 this.gameInfoRequests.delete(key);

@@ -37,4 +37,10 @@ export class BufferWriter {
     getBuffer() {
         return Buffer.concat(this.buffers);
     }
+
+    appendBuffer(ab: Buffer) {
+        for (let i = 0; i < ab.byteLength; i++) {
+            this.writeUInt8(ab.at(i));
+        }
+    }
 }
