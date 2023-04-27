@@ -367,13 +367,12 @@ export class MPMasterServer {
 
         if (cmd === PacketType.MasterServerGamePingRequest) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
-            let key = br.readU32();
-            let session = br.readU32();
             let flags = br.readU8();
+            let key = br.readU32();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
             let connectserver = this.serverList.find(x => x.address === address);
             if (connectserver != null) {
-                console.log(`Pinging ${address} key ${key} ${session} ${flags}`);
+                console.log(`Pinging ${address} key ${key} ${flags}`);
                 this.gamePingRequests.set(key, {
                     address: rinfo.address,
                     port: rinfo.port,
@@ -382,7 +381,7 @@ export class MPMasterServer {
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.GamePingRequest);
                 buf.writeUInt8(flags);
-                buf.writeUInt32((session << 16) | (key & 0xFFFF));
+                buf.writeUInt32(key);
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, connectserver.port, connectserver.address); // We relay?
             }
@@ -390,13 +389,12 @@ export class MPMasterServer {
 
         if (cmd === PacketType.MasterServerGameInfoRequest) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
-            let key = br.readU32();
-            let session = br.readU32();
             let flags = br.readU8();
+            let key = br.readU32();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
             let connectserver = this.serverList.find(x => x.address === address);
             if (connectserver != null) {
-                console.log(`Requesting info from ${address} key ${key} ${session} ${flags}`);
+                console.log(`Requesting info from ${address} key ${key} ${flags}`);
                 this.gameInfoRequests.set(key, {
                     address: rinfo.address,
                     port: rinfo.port,
@@ -405,7 +403,7 @@ export class MPMasterServer {
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.GameInfoRequest);
                 buf.writeUInt8(flags);
-                buf.writeUInt32((session << 16) | (key & 0xFFFF));
+                buf.writeUInt32(key);
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, connectserver.port, connectserver.address); // We relay?
             }
