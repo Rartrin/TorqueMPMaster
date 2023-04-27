@@ -46,6 +46,10 @@ enum PacketType {
     MasterServerArrangedConnectionAccepted = 52,
     MasterServerRejectArrangedConnection = 54,
     MasterServerArrangedConnectionRejected = 56,
+    MasterServerGamePingRequest = 58,
+    MasterServerGamePingResponse = 60,
+    MasterServerGameInfoRequest = 62,
+    MasterServerGameInfoResponse = 64
 }
 
 let currentClientId = 0;
@@ -55,6 +59,8 @@ export class MPMasterServer {
     socket: udp.Socket
     serverList: MPServer[] = []
     arrangedClients: ArrangedClient[] = []
+    gamePingRequests: Map<number, { address: string, port: number, reqip: number[] }> = new Map();
+    gameInfoRequests: Map<number, { address: string, port: number, reqip: number[] }> = new Map();
 
     // Starts the Multiplayer Master Server
     initialize() {
@@ -266,8 +272,8 @@ export class MPMasterServer {
             if (connectserver == null) {
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerArrangedConnectionRejected);
-                buf.writeUInt8(0); // Key
-                buf.writeUInt32(0); // Flags
+                buf.writeUInt8(0); // Flags
+                buf.writeUInt32(0); // Key
                 buf.writeUInt8(0); // 0 = unknown host
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, rinfo.port, rinfo.address); // MasterServerRejectArrangedConnectRequest
@@ -295,8 +301,8 @@ export class MPMasterServer {
                 
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerClientRequestedArrangedConnection);
-                buf.writeUInt8(0); // Key
-                buf.writeUInt32(0); // Flags
+                buf.writeUInt8(0); // Flags
+                buf.writeUInt32(0); // Key
                 buf.writeUInt16(clientid);
                 buf.writeUInt8(possibleAddresses.length);
                 for (let addr of possibleAddresses) {
@@ -329,8 +335,8 @@ export class MPMasterServer {
 
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerArrangedConnectionAccepted);
-                buf.writeUInt8(0); // Key
-                buf.writeUInt32(0); // Flags
+                buf.writeUInt8(0); // Flags
+                buf.writeUInt32(0); // Key
                 buf.writeUInt8(possibleAddresses.length);
                 for (let addr of possibleAddresses) {
                     let ipbits = addr.address.split('.');
@@ -351,11 +357,101 @@ export class MPMasterServer {
             if (client != null) {
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerArrangedConnectionRejected);
-                buf.writeUInt8(0); // Key
-                buf.writeUInt32(0); // Flags
+                buf.writeUInt8(0); // flags
+                buf.writeUInt32(0); // Key
                 buf.writeUInt8(1); // 1 = Server Rejected
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, client.port, client.address);
+            }
+        }
+
+        if (cmd === PacketType.MasterServerGamePingRequest) {
+            let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+            let key = br.readU32();
+            let session = br.readU32();
+            let flags = br.readU8();
+            let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
+            let connectserver = this.serverList.find(x => x.address === address);
+            if (connectserver != null) {
+                this.gamePingRequests.set(key, {
+                    address: rinfo.address,
+                    port: rinfo.port,
+                    reqip: ipbits
+                });
+                let buf = new BufferWriter();
+                buf.writeUInt8(PacketType.GamePingRequest);
+                buf.writeUInt8(flags);
+                buf.writeUInt32((session << 16) | (key & 0xFFFF));
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, connectserver.port, connectserver.address); // We relay?
+            }
+        }
+
+        if (cmd === PacketType.MasterServerGameInfoRequest) {
+            let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+            let key = br.readU32();
+            let session = br.readU32();
+            let flags = br.readU8();
+            let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
+            let connectserver = this.serverList.find(x => x.address === address);
+            if (connectserver != null) {
+                this.gameInfoRequests.set(key, {
+                    address: rinfo.address,
+                    port: rinfo.port,
+                    reqip: ipbits
+                });
+                let buf = new BufferWriter();
+                buf.writeUInt8(PacketType.GameInfoRequest);
+                buf.writeUInt8(flags);
+                buf.writeUInt32((session << 16) | (key & 0xFFFF));
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, connectserver.port, connectserver.address); // We relay?
+            }
+        }
+
+        if (cmd === PacketType.GamePingResponse) {
+            let flags = br.readU8();
+            let key = br.readU32();
+            let pr = this.gamePingRequests.get(key);
+            if (pr != null) {
+                let ab = Buffer.from(msg.buffer);
+                let buf = new BufferWriter();
+                buf.writeUInt8(PacketType.MasterServerGamePingResponse);
+                let ipbits = pr.reqip;
+                buf.writeUInt8(flags); // Key
+                buf.writeUInt32(key); // Flags
+                buf.writeUInt8(ipbits[0]);
+                buf.writeUInt8(ipbits[1]);
+                buf.writeUInt8(ipbits[2]);
+                buf.writeUInt8(ipbits[3]);
+                buf.writeUInt16(pr.port);
+                buf.buffers.push(ab);
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, pr.port, pr.address);
+                this.gamePingRequests.delete(key);
+            }
+        }
+
+        if (cmd === PacketType.GameInfoResponse) {
+            let flags = br.readU8();
+            let key = br.readU32();
+            let pr = this.gameInfoRequests.get(key);
+            if (pr != null) {
+                let ab = Buffer.from(msg.buffer);
+                let buf = new BufferWriter();
+                buf.writeUInt8(PacketType.MasterServerGamePingResponse);
+                let ipbits = pr.reqip;
+                buf.writeUInt8(flags); // Key
+                buf.writeUInt32(key); // Flags
+                buf.writeUInt8(ipbits[0]);
+                buf.writeUInt8(ipbits[1]);
+                buf.writeUInt8(ipbits[2]);
+                buf.writeUInt8(ipbits[3]);
+                buf.writeUInt16(pr.port);
+                buf.buffers.push(ab);
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, pr.port, pr.address);
+                this.gameInfoRequests.delete(key);
             }
         }
     }
