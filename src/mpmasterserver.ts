@@ -373,7 +373,7 @@ export class MPMasterServer {
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
             let connectserver = this.serverList.find(x => x.address === address);
             if (connectserver != null) {
-                console.log(`Pinging ${address}`);
+                console.log(`Pinging ${address} key ${key} ${session} ${flags}`);
                 this.gamePingRequests.set(key, {
                     address: rinfo.address,
                     port: rinfo.port,
