@@ -59,8 +59,8 @@ export class MPMasterServer {
     socket: udp.Socket
     serverList: MPServer[] = []
     arrangedClients: ArrangedClient[] = []
-    gamePingRequests: Map<number, { address: string, port: number, reqip: number[] }> = new Map();
-    gameInfoRequests: Map<number, { address: string, port: number, reqip: number[] }> = new Map();
+    gamePingRequests: Map<number, { address: string, port: number, reqip: number[], reqport: number }> = new Map();
+    gameInfoRequests: Map<number, { address: string, port: number, reqip: number[], reqport: number }> = new Map();
 
     // Starts the Multiplayer Master Server
     initialize() {
@@ -376,7 +376,8 @@ export class MPMasterServer {
                 this.gamePingRequests.set(key, {
                     address: rinfo.address,
                     port: rinfo.port,
-                    reqip: ipbits
+                    reqip: ipbits,
+                    reqport: connectserver.port
                 });
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.GamePingRequest);
@@ -398,7 +399,8 @@ export class MPMasterServer {
                 this.gameInfoRequests.set(key, {
                     address: rinfo.address,
                     port: rinfo.port,
-                    reqip: ipbits
+                    reqip: ipbits,
+                    reqport: connectserver.port
                 });
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.GameInfoRequest);
@@ -426,7 +428,7 @@ export class MPMasterServer {
                 buf.writeUInt8(ipbits[1]);
                 buf.writeUInt8(ipbits[2]);
                 buf.writeUInt8(ipbits[3]);
-                buf.writeUInt16(pr.port);
+                buf.writeUInt16(pr.reqport);
                 buf.buffers.push(ab);
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, pr.port, pr.address);
@@ -451,7 +453,7 @@ export class MPMasterServer {
                 buf.writeUInt8(ipbits[1]);
                 buf.writeUInt8(ipbits[2]);
                 buf.writeUInt8(ipbits[3]);
-                buf.writeUInt16(pr.port);
+                buf.writeUInt16(pr.reqport);
                 buf.buffers.push(ab);
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, pr.port, pr.address);
