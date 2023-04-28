@@ -1,4 +1,6 @@
 import * as udp from 'dgram'
+import * as fs from 'fs-extra'
+import * as path from 'path'
 import { BufferReader } from './bufferreader';
 import { BufferWriter } from './bufferwriter';
 
@@ -26,6 +28,12 @@ interface ArrangedClient {
     id: number
 }
 
+interface RelayServer {
+    address: string,
+    port: number,
+    connected: number
+}
+
 enum PacketType {
     MasterServerGameTypesRequest = 2,
     MasterServerGameTypesResponse = 4,
@@ -49,7 +57,10 @@ enum PacketType {
     MasterServerGamePingRequest = 58,
     MasterServerGamePingResponse = 60,
     MasterServerGameInfoRequest = 62,
-    MasterServerGameInfoResponse = 64
+    MasterServerGameInfoResponse = 64,
+    MasterServerRelayRequest = 66,
+    MasterServerRelayResponse = 68,
+    RelayDelete = 70,
 }
 
 let currentClientId = 0;
@@ -61,6 +72,9 @@ export class MPMasterServer {
     arrangedClients: ArrangedClient[] = []
     gamePingRequests: Map<number, { address: string, port: number, reqip: number[], reqport: number }> = new Map();
     gameInfoRequests: Map<number, { address: string, port: number, reqip: number[], reqport: number }> = new Map();
+    gameRelayRequests: Map<number, { address: string, port: number, relay: RelayServer }> = new Map();
+    relayServers: RelayServer[] = []
+    updateInterval: ReturnType<typeof setInterval>;
 
     // Starts the Multiplayer Master Server
     initialize() {
@@ -69,11 +83,33 @@ export class MPMasterServer {
         this.socket.on('message', (msg, rinfo) => this.onMessage(msg, rinfo));
         this.socket.on('error', (err) => this.onError(err));
 
-        let hostsplit = '0.0.0.0:1337'.split(':'); // Naive but works for now
+        let settings = JSON.parse(fs.readFileSync('settings.json', 'utf-8'))
+
+        for (let relayHostname of settings.relays) {
+            let relayHostSplit = relayHostname.split(':');
+            this.relayServers.push({
+                address: relayHostSplit[0],
+                port: Number.parseInt(relayHostSplit[1]),
+                connected: 0
+            });
+        }
+
+        let hostsplit = settings.masterIp.split(':'); // Naive but works for now
         let hostname = hostsplit[0];
         let port = Number.parseInt(hostsplit[1]);
 
         this.socket.bind(port, hostname);
+        this.updateInterval = setInterval(() => this.update(), 10000);
+    }
+
+    update() {
+        this.serverList = this.serverList.filter(server => {
+            if (server.timestamp + 10000 < new Date().getTime()) {
+                console.log(`Purging ${server.address}:${server.port} due to inactivity`);
+                return false; // Purge old servers
+            }
+            return true;
+        });
     }
 
     // Stops the server
@@ -456,6 +492,79 @@ export class MPMasterServer {
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, pr.port, pr.address);
                 this.gameInfoRequests.delete(key);
+            }
+        }
+
+        if (cmd === PacketType.MasterServerRelayRequest) {
+            let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+            let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
+            let connectserver = this.serverList.find(x => x.address === address);
+            if (connectserver != null) {
+                // Request a relay to give connection to this server
+                // Get the relay server with lowest connections
+                let pcount = Infinity;
+                let relay: RelayServer = null;
+                for (let server of this.relayServers) {
+                    if (server.connected < pcount) {
+                        pcount = server.connected;
+                        relay = server;
+                    }
+                }
+                // Let the relay server know
+                let myip = rinfo.address.split(".").map(x => parseInt(x));
+                if (relay != null) {
+                    let id = currentClientId++;
+                    this.gameRelayRequests.set(id, {
+                        address: rinfo.address,
+                        port: rinfo.port,
+                        relay: relay
+                    })
+
+                    let buf = new BufferWriter();
+                    buf.writeUInt8(PacketType.MasterServerRelayRequest);
+                    buf.writeUInt32(id);
+                    buf.writeUInt8(ipbits[0]); // Dest (game server)
+                    buf.writeUInt8(ipbits[1]);
+                    buf.writeUInt8(ipbits[2]);
+                    buf.writeUInt8(ipbits[3]);
+                    buf.writeUInt16(connectserver.port);
+                    buf.writeUInt8(myip[0]); // Src (us)
+                    buf.writeUInt8(myip[1]);
+                    buf.writeUInt8(myip[2]);
+                    buf.writeUInt8(myip[3]);
+                    let sendbuf = buf.getBuffer();
+                    this.socket.send(sendbuf, relay.port, relay.address);
+                }
+            }
+        }
+
+        if (cmd === PacketType.MasterServerRelayResponse) {
+            let id = br.readU32();
+            let relayport = br.readU16();
+            let relayRequest = this.gameRelayRequests.get(id);
+            if (relayRequest != null) {
+                let buf = new BufferWriter();
+                buf.writeUInt8(PacketType.MasterServerRelayResponse);
+                buf.writeUInt8(0); // Key
+                buf.writeUInt32(0); // Flags
+                let relayIpbits = relayRequest.relay.address.split(".").map(x => parseInt(x));
+                buf.writeUInt8(relayIpbits[0]);
+                buf.writeUInt8(relayIpbits[1]);
+                buf.writeUInt8(relayIpbits[2]);
+                buf.writeUInt8(relayIpbits[3]);
+                buf.writeUInt16(relayport);
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, relayRequest.port, relayRequest.address);
+                relayRequest.relay.connected++;
+                this.gameRelayRequests.delete(id);
+            }
+        }
+
+        if (cmd === PacketType.RelayDelete) {
+            let relay = this.relayServers.find(x => x.address === rinfo.address && x.port === rinfo.port);
+            if (relay != null) {
+                console.log(`Relay ${rinfo.address}:${rinfo.port} disconnected by user`);
+                relay.connected--;
             }
         }
     }

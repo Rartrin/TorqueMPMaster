@@ -2408,11 +2408,11 @@ var require_lib = __commonJS({
   }
 });
 
-// src/mpmasterserver.ts
+// relay/relayserver.ts
 var udp = __toESM(require("dgram"));
 var fs = __toESM(require_lib());
 
-// src/bufferreader.ts
+// relay/bufferreader.ts
 var BufferReader = class {
   constructor(arrayBuffer) {
     /** The current index of reading. */
@@ -2451,7 +2451,7 @@ var BufferReader = class {
   }
 };
 
-// src/bufferwriter.ts
+// relay/bufferwriter.ts
 var BufferWriter = class {
   constructor() {
     this.buffers = [];
@@ -2491,41 +2491,35 @@ var BufferWriter = class {
   }
 };
 
-// src/mpmasterserver.ts
-var currentClientId = 0;
-var MPMasterServer = class {
+// relay/relayserver.ts
+var MPRelayServer = class {
   constructor() {
-    this.serverList = [];
-    this.arrangedClients = [];
-    this.gamePingRequests = /* @__PURE__ */ new Map();
-    this.gameInfoRequests = /* @__PURE__ */ new Map();
-    this.gameRelayRequests = /* @__PURE__ */ new Map();
-    this.relayServers = [];
+    this.relays = [];
   }
   // Starts the Multiplayer Master Server
   initialize() {
     this.socket = udp.createSocket("udp4");
+    let settings = JSON.parse(fs.readFileSync("settings.json", "utf-8"));
+    let mastersplit = settings.masterIp.split(":");
+    this.masterServerAddress = mastersplit[0];
+    this.masterServerPort = Number.parseInt(mastersplit[1]);
     this.socket.on("message", (msg, rinfo) => this.onMessage(msg, rinfo));
     this.socket.on("error", (err) => this.onError(err));
-    let settings = JSON.parse(fs.readFileSync("settings.json", "utf-8"));
-    for (let relayHostname of settings.relays) {
-      let relayHostSplit = relayHostname.split(":");
-      this.relayServers.push({
-        address: relayHostSplit[0],
-        port: Number.parseInt(relayHostSplit[1]),
-        connected: 0
-      });
-    }
-    let hostsplit = settings.masterIp.split(":");
+    let hostsplit = settings.relayIp.split(":");
     let hostname = hostsplit[0];
     let port = Number.parseInt(hostsplit[1]);
     this.socket.bind(port, hostname);
     this.updateInterval = setInterval(() => this.update(), 1e4);
   }
   update() {
-    this.serverList = this.serverList.filter((server2) => {
-      if (server2.timestamp + 1e4 < (/* @__PURE__ */ new Date()).getTime()) {
-        console.log(`Purging ${server2.address}:${server2.port} due to inactivity`);
+    this.relays = this.relays.filter((server2) => {
+      if (server2.lastUpdated + 1e4 < (/* @__PURE__ */ new Date()).getTime()) {
+        console.log(`Purging ${server2.srcIp}:${server2.srcPort} <--> ${server2.destIp}:${server2.destPort} due to inactivity`);
+        server2.socket.close();
+        let bw = new BufferWriter();
+        bw.writeUInt8(70 /* RelayDelete */);
+        let sendbuf = bw.getBuffer();
+        this.socket.send(sendbuf, this.masterServerPort, this.masterServerAddress);
         return false;
       }
       return true;
@@ -2544,402 +2538,65 @@ var MPMasterServer = class {
     let br = new BufferReader(msg.buffer);
     let cmd = br.readU8();
     console.log(`${cmd} command received from ${rinfo.address}:${rinfo.port}`);
-    if (cmd === 6 /* MasterServerListRequest */) {
-      let queryFlags = br.readU8();
-      let key = br.readU32();
-      let dummy = br.readU8();
-      let gameType = br.readString();
-      let missionType = br.readString();
-      let minPlayers = br.readU8();
-      let maxPlayers = br.readU8();
-      let regionMask = br.readU32();
-      let version = br.readU32();
-      let filterFlag = br.readU8();
-      let maxBots = br.readU8();
-      let minCPU = br.readU16();
-      let buddyCount = br.readU8();
-      if (this.serverList.length > 0) {
-        let packettotal = this.serverList.length;
-        let packetindex = 0;
-        this.serverList.forEach((serverinfo) => {
-          let serveraddress = serverinfo.address;
-          let serverport = serverinfo.port;
-          let now = (/* @__PURE__ */ new Date()).getTime();
-          if (now > serverinfo.timestamp + 90 * 1e3) {
-            let buf2 = new BufferWriter();
-            buf2.writeUInt8(10 /* GameMasterInfoRequest */);
-            buf2.writeUInt8(queryFlags);
-            buf2.writeUInt32(key);
-            let sendbuf2 = buf2.getBuffer();
-            this.socket.send(sendbuf2, serverport, serveraddress);
-          }
-          let ipbits = serveraddress.split(".");
-          let buf = new BufferWriter();
-          buf.writeUInt8(8 /* MasterServerListResponse */);
-          buf.writeUInt8(0);
-          buf.writeUInt32(key);
-          buf.writeUInt8(packetindex);
-          buf.writeUInt8(packettotal);
-          buf.writeUInt16(packettotal);
-          buf.writeUInt8(Number.parseInt(ipbits[0]));
-          buf.writeUInt8(Number.parseInt(ipbits[1]));
-          buf.writeUInt8(Number.parseInt(ipbits[2]));
-          buf.writeUInt8(Number.parseInt(ipbits[3]));
-          buf.writeUInt16(serverport);
-          packetindex++;
-          let sendbuf = buf.getBuffer();
-          this.socket.send(sendbuf, rinfo.port, rinfo.address);
-        });
-      } else {
-        let buf = new BufferWriter();
-        buf.writeUInt8(8 /* MasterServerListResponse */);
-        buf.writeUInt8(0);
-        buf.writeUInt32(key);
-        buf.writeUInt8(0);
-        buf.writeUInt8(0);
-        buf.writeUInt16(0);
-        buf.writeUInt8(0);
-        buf.writeUInt8(0);
-        buf.writeUInt8(0);
-        buf.writeUInt8(0);
-        buf.writeUInt16(0);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, rinfo.port, rinfo.address);
-      }
-    }
-    if (cmd === 12 /* GameMasterInfoResponse */) {
-      let flags = br.readU8();
-      let key = br.readU32();
-      let gameType = br.readString();
-      let missionType = br.readString();
-      let maxPlayers = br.readU8();
-      let regionMask = br.readU32();
-      let version = br.readU32();
-      let filterFlag = br.readU8();
-      let botCount = br.readU8();
-      let cpuSpeed = br.readU32();
-      let playerCount = br.readU8();
-      let guidList = [];
-      for (let i = 0; i < playerCount; i++)
-        guidList.push(br.readU32());
-      let info = {
-        gameType,
-        missionType,
-        maxPlayers,
-        regionMask,
-        version,
-        filterFlag,
-        botCount,
-        cpuSpeed,
-        playerCount,
-        guidList
-      };
-      let found = false;
-      for (let i = 0; i < this.serverList.length; i++) {
-        if (this.serverList[i].address == rinfo.address && this.serverList[i].port == rinfo.port) {
-          this.serverList[i].info = info;
-          this.serverList[i].timestamp = (/* @__PURE__ */ new Date()).getTime();
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        let serverInfo = {
-          address: rinfo.address,
-          port: rinfo.port,
-          info,
-          timestamp: (/* @__PURE__ */ new Date()).getTime()
-        };
-        this.serverList.push(serverInfo);
-      }
-    }
-    if (cmd === 22 /* GameHeartbeat */) {
-      let found = false;
-      let flags = br.readU8();
-      let key = br.readU32();
-      for (let i = 0; i < this.serverList.length; i++) {
-        if (this.serverList[i].address == rinfo.address && this.serverList[i].port == rinfo.port) {
-          this.serverList[i].timestamp = (/* @__PURE__ */ new Date()).getTime();
-          found = true;
-          let buf = new BufferWriter();
-          buf.writeUInt8(10 /* GameMasterInfoRequest */);
-          buf.writeUInt8(flags);
-          buf.writeUInt32(key);
-          let sendbuf = buf.getBuffer();
-          this.socket.send(sendbuf, rinfo.port, rinfo.address);
-          break;
-        }
-      }
-      if (!found) {
-        let serverInfo = {
-          address: rinfo.address,
-          port: rinfo.port,
-          info: null,
-          timestamp: (/* @__PURE__ */ new Date()).getTime()
-        };
-        let buf = new BufferWriter();
-        buf.writeUInt8(10 /* GameMasterInfoRequest */);
-        buf.writeUInt8(flags);
-        buf.writeUInt32(key);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, rinfo.port, rinfo.address);
-        this.serverList.push(serverInfo);
-      }
-    }
-    if (cmd === 46 /* MasterServerRequestArrangedConnection */) {
-      let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
-      let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-      let connectserver = this.serverList.find((x) => x.address === address);
-      if (connectserver == null) {
-        let buf = new BufferWriter();
-        buf.writeUInt8(56 /* MasterServerArrangedConnectionRejected */);
-        buf.writeUInt8(0);
-        buf.writeUInt32(0);
-        buf.writeUInt8(0);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, rinfo.port, rinfo.address);
-      } else {
-        console.log(`${rinfo.address}:${rinfo.port} Requesting connection to ${connectserver.address}:${connectserver.port}`);
-        let possibleAddresses = [
-          {
-            address: rinfo.address,
-            port: rinfo.port + 1
-          },
-          {
-            address: rinfo.address,
-            port: rinfo.port
-          }
-        ];
-        let clientid = currentClientId++;
-        this.arrangedClients.push({
-          address: rinfo.address,
-          port: rinfo.port,
-          id: clientid
-        });
-        let buf = new BufferWriter();
-        buf.writeUInt8(48 /* MasterServerClientRequestedArrangedConnection */);
-        buf.writeUInt8(0);
-        buf.writeUInt32(0);
-        buf.writeUInt16(clientid);
-        buf.writeUInt8(possibleAddresses.length);
-        for (let addr of possibleAddresses) {
-          let ipbits2 = addr.address.split(".");
-          buf.writeUInt8(Number.parseInt(ipbits2[0]));
-          buf.writeUInt8(Number.parseInt(ipbits2[1]));
-          buf.writeUInt8(Number.parseInt(ipbits2[2]));
-          buf.writeUInt8(Number.parseInt(ipbits2[3]));
-          buf.writeUInt16(addr.port);
-        }
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, connectserver.port, connectserver.address);
-      }
-    }
-    if (cmd === 50 /* MasterServerAcceptArrangedConnection */) {
-      let clientId = br.readU16();
-      let client = this.arrangedClients.find((x) => x.id === clientId);
-      if (client != null) {
-        let possibleAddresses = [
-          {
-            address: rinfo.address,
-            port: rinfo.port + 1
-          },
-          {
-            address: rinfo.address,
-            port: rinfo.port
-          }
-        ];
-        let buf = new BufferWriter();
-        buf.writeUInt8(52 /* MasterServerArrangedConnectionAccepted */);
-        buf.writeUInt8(0);
-        buf.writeUInt32(0);
-        buf.writeUInt8(possibleAddresses.length);
-        for (let addr of possibleAddresses) {
-          let ipbits = addr.address.split(".");
-          buf.writeUInt8(Number.parseInt(ipbits[0]));
-          buf.writeUInt8(Number.parseInt(ipbits[1]));
-          buf.writeUInt8(Number.parseInt(ipbits[2]));
-          buf.writeUInt8(Number.parseInt(ipbits[3]));
-          buf.writeUInt16(addr.port);
-        }
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, client.port, client.address);
-      }
-    }
-    if (cmd === 54 /* MasterServerRejectArrangedConnection */) {
-      let clientId = br.readU16();
-      let client = this.arrangedClients.find((x) => x.id === clientId);
-      if (client != null) {
-        let buf = new BufferWriter();
-        buf.writeUInt8(56 /* MasterServerArrangedConnectionRejected */);
-        buf.writeUInt8(0);
-        buf.writeUInt32(0);
-        buf.writeUInt8(1);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, client.port, client.address);
-      }
-    }
-    if (cmd === 58 /* MasterServerGamePingRequest */) {
-      let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
-      let flags = br.readU8();
-      let key = br.readU32();
-      let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-      let connectserver = this.serverList.find((x) => x.address === address);
-      if (connectserver != null) {
-        console.log(`Pinging ${address} key ${key} ${flags}`);
-        this.gamePingRequests.set(key, {
-          address: rinfo.address,
-          port: rinfo.port,
-          reqip: ipbits,
-          reqport: connectserver.port
-        });
-        let buf = new BufferWriter();
-        buf.writeUInt8(14 /* GamePingRequest */);
-        buf.writeUInt8(flags);
-        buf.writeUInt32(key);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, connectserver.port, connectserver.address);
-      }
-    }
-    if (cmd === 62 /* MasterServerGameInfoRequest */) {
-      let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
-      let flags = br.readU8();
-      let key = br.readU32();
-      let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-      let connectserver = this.serverList.find((x) => x.address === address);
-      if (connectserver != null) {
-        console.log(`Requesting info from ${address} key ${key} ${flags}`);
-        this.gameInfoRequests.set(key, {
-          address: rinfo.address,
-          port: rinfo.port,
-          reqip: ipbits,
-          reqport: connectserver.port
-        });
-        let buf = new BufferWriter();
-        buf.writeUInt8(18 /* GameInfoRequest */);
-        buf.writeUInt8(flags);
-        buf.writeUInt32(key);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, connectserver.port, connectserver.address);
-      }
-    }
-    if (cmd === 16 /* GamePingResponse */) {
-      let flags = br.readU8();
-      let key = br.readU32();
-      let pr = this.gamePingRequests.get(key);
-      console.log(`Key ${key} ${flags}`);
-      if (pr != null) {
-        console.log(`Got ping response for ${pr.address}`);
-        let buf = new BufferWriter();
-        buf.writeUInt8(60 /* MasterServerGamePingResponse */);
-        let ipbits = pr.reqip;
-        buf.writeUInt8(flags);
-        buf.writeUInt32(key);
-        buf.writeUInt8(ipbits[0]);
-        buf.writeUInt8(ipbits[1]);
-        buf.writeUInt8(ipbits[2]);
-        buf.writeUInt8(ipbits[3]);
-        buf.writeUInt16(pr.reqport);
-        buf.appendBuffer(msg);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, pr.port, pr.address);
-        this.gamePingRequests.delete(key);
-      }
-    }
-    if (cmd === 20 /* GameInfoResponse */) {
-      let flags = br.readU8();
-      let key = br.readU32();
-      let pr = this.gameInfoRequests.get(key);
-      console.log(`Key ${key} ${flags}`);
-      if (pr != null) {
-        console.log(`Got game info response for ${pr.address}`);
-        let buf = new BufferWriter();
-        buf.writeUInt8(60 /* MasterServerGamePingResponse */);
-        let ipbits = pr.reqip;
-        buf.writeUInt8(flags);
-        buf.writeUInt32(key);
-        buf.writeUInt8(ipbits[0]);
-        buf.writeUInt8(ipbits[1]);
-        buf.writeUInt8(ipbits[2]);
-        buf.writeUInt8(ipbits[3]);
-        buf.writeUInt16(pr.reqport);
-        buf.appendBuffer(msg);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, pr.port, pr.address);
-        this.gameInfoRequests.delete(key);
-      }
-    }
     if (cmd === 66 /* MasterServerRelayRequest */) {
-      let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
-      let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-      let connectserver = this.serverList.find((x) => x.address === address);
-      if (connectserver != null) {
-        let pcount = Infinity;
-        let relay = null;
-        for (let server2 of this.relayServers) {
-          if (server2.connected < pcount) {
-            pcount = server2.connected;
-            relay = server2;
-          }
-        }
-        let myip = rinfo.address.split(".").map((x) => parseInt(x));
-        if (relay != null) {
-          let id = currentClientId++;
-          this.gameRelayRequests.set(id, {
-            address: rinfo.address,
-            port: rinfo.port,
-            relay
-          });
-          let buf = new BufferWriter();
-          buf.writeUInt8(66 /* MasterServerRelayRequest */);
-          buf.writeUInt32(id);
-          buf.writeUInt8(ipbits[0]);
-          buf.writeUInt8(ipbits[1]);
-          buf.writeUInt8(ipbits[2]);
-          buf.writeUInt8(ipbits[3]);
-          buf.writeUInt16(connectserver.port);
-          buf.writeUInt8(myip[0]);
-          buf.writeUInt8(myip[1]);
-          buf.writeUInt8(myip[2]);
-          buf.writeUInt8(myip[3]);
-          let sendbuf = buf.getBuffer();
-          this.socket.send(sendbuf, relay.port, relay.address);
-        }
-      }
-    }
-    if (cmd === 68 /* MasterServerRelayResponse */) {
       let id = br.readU32();
-      let relayport = br.readU16();
-      let relayRequest = this.gameRelayRequests.get(id);
-      if (relayRequest != null) {
-        let buf = new BufferWriter();
-        buf.writeUInt8(68 /* MasterServerRelayResponse */);
-        buf.writeUInt8(0);
-        buf.writeUInt32(0);
-        let relayIpbits = relayRequest.relay.address.split(".").map((x) => parseInt(x));
-        buf.writeUInt8(relayIpbits[0]);
-        buf.writeUInt8(relayIpbits[1]);
-        buf.writeUInt8(relayIpbits[2]);
-        buf.writeUInt8(relayIpbits[3]);
-        buf.writeUInt16(relayport);
-        let sendbuf = buf.getBuffer();
-        this.socket.send(sendbuf, relayRequest.port, relayRequest.address);
-        relayRequest.relay.connected++;
-        this.gameRelayRequests.delete(id);
-      }
+      let targetIp = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+      let targetPort = br.readU16();
+      let srcIp = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+      let relay = this.createRelay(
+        `${srcIp[0]}.${srcIp[1]}.${srcIp[2]}.${srcIp[3]}`,
+        `${targetIp[0]}.${targetIp[1]}.${targetIp[2]}.${targetIp[3]}`,
+        targetPort,
+        (relay2) => {
+          let bw = new BufferWriter();
+          bw.writeUInt8(68 /* MasterServerRelayResponse */);
+          bw.writeUInt32(id);
+          let relayPort = relay2.socket.address().port;
+          bw.writeUInt16(relayPort);
+          let sendbuf = bw.getBuffer();
+          this.socket.send(sendbuf, rinfo.port, rinfo.address);
+        }
+      );
     }
-    if (cmd === 70 /* RelayDelete */) {
-      let relay = this.relayServers.find((x) => x.address === rinfo.address && x.port === rinfo.port);
-      if (relay != null) {
-        console.log(`Relay ${rinfo.address}:${rinfo.port} disconnected by user`);
-        relay.connected--;
-      }
+  }
+  createRelay(srcIp, targetIp, targetPort, callback) {
+    let relay = this.relays.find((x) => x.srcIp === srcIp && x.destIp === targetIp && x.destPort === targetPort);
+    if (!relay) {
+      console.log(`Creating relay from ${srcIp} to ${targetIp}:${targetPort}`);
+      relay = {
+        socket: udp.createSocket("udp4"),
+        srcIp,
+        destIp: targetIp,
+        destPort: targetPort,
+        lastUpdated: Date.now()
+      };
+      relay.socket.on("message", (msg, rinfo) => this.onRelayMessage(msg, rinfo, relay));
+      relay.socket.on("error", (err) => this.onRelayError(err, relay));
+      relay.socket.bind(0, "0.0.0.0", () => callback(relay));
+      this.relays.push(relay);
+    }
+    relay.lastUpdated = Date.now();
+    return relay;
+  }
+  onRelayError(err, relay) {
+    console.log(err);
+    relay.socket.close();
+    this.relays.splice(this.relays.indexOf(relay), 1);
+  }
+  onRelayMessage(msg, rinfo, relay) {
+    relay.lastUpdated = Date.now();
+    if (rinfo.address == relay.srcIp && rinfo.port != relay.destPort) {
+      relay.srcPort = rinfo.port;
+      relay.socket.send(msg, relay.destPort, relay.destIp);
+    } else {
+      relay.socket.send(msg, relay.srcPort, relay.srcIp);
     }
   }
 };
 
-// src/index.ts
-console.log("Starting MP Master Server");
-var server = new MPMasterServer();
+// relay/index.ts
+console.log("Starting MP Relay");
+var server = new MPRelayServer();
 server.initialize();
 process.on("exit", () => {
   console.log("Stopping...");
