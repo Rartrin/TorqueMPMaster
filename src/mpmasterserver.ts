@@ -153,6 +153,11 @@ export class MPMasterServer {
                     let serveraddress = serverinfo.address;
                     let serverport = serverinfo.port;
 
+                    if (serveraddress == rinfo.address) {
+                        packettotal--;
+                        return;
+                    }
+
                     let now = new Date().getTime();
 
                     // Check for refresh
