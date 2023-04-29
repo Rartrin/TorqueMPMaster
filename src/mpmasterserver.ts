@@ -479,7 +479,7 @@ export class MPMasterServer {
             if (pr != null) {
                 console.log(`Got game info response for ${pr.address}`);
                 let buf = new BufferWriter();
-                buf.writeUInt8(PacketType.MasterServerGamePingResponse);
+                buf.writeUInt8(PacketType.MasterServerGameInfoResponse);
                 let ipbits = pr.reqip;
                 buf.writeUInt8(flags); // Key
                 buf.writeUInt32(key); // Flags
