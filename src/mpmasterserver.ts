@@ -146,17 +146,14 @@ export class MPMasterServer {
             let minCPU = br.readU16();
             let buddyCount = br.readU8();
 
-            if (this.serverList.length > 0) {
-                let packettotal = this.serverList.length;
+            let sendServerList = this.serverList.filter(x => x.address != rinfo.address);
+
+            if (sendServerList.length > 0) {
+                let packettotal = sendServerList.length;
                 let packetindex = 0;
-                this.serverList.forEach(serverinfo => {
+                sendServerList.forEach(serverinfo => {
                     let serveraddress = serverinfo.address;
                     let serverport = serverinfo.port;
-
-                    if (serveraddress == rinfo.address) {
-                        packettotal--;
-                        return;
-                    }
 
                     let now = new Date().getTime();
 
