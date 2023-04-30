@@ -1,6 +1,7 @@
 import * as udp from 'dgram'
 import * as fs from 'fs-extra'
 import * as path from 'path'
+import * as os from 'os'
 import { BufferReader } from './bufferreader';
 import { BufferWriter } from './bufferwriter';
 
@@ -61,6 +62,7 @@ enum PacketType {
     MasterServerRelayRequest = 66,
     MasterServerRelayResponse = 68,
     RelayDelete = 70,
+    MasterServerRelayJoinRequest = 72,
 }
 
 let currentClientId = 0;
@@ -72,9 +74,10 @@ export class MPMasterServer {
     arrangedClients: ArrangedClient[] = []
     gamePingRequests: Map<number, { address: string, port: number, reqip: number[], reqport: number }> = new Map();
     gameInfoRequests: Map<number, { address: string, port: number, reqip: number[], reqport: number }> = new Map();
-    gameRelayRequests: Map<number, { address: string, port: number, relay: RelayServer }> = new Map();
+    gameRelayRequests: Map<number, { address: string, port: number, relay: RelayServer, mpserver: MPServer }> = new Map();
     relayServers: RelayServer[] = []
     updateInterval: ReturnType<typeof setInterval>;
+    localIps: string[] = []
 
     // Starts the Multiplayer Master Server
     initialize() {
@@ -99,12 +102,35 @@ export class MPMasterServer {
         let port = Number.parseInt(hostsplit[1]);
 
         this.socket.bind(port, hostname);
-        this.updateInterval = setInterval(() => this.update(), 10000);
+        this.updateInterval = setInterval(() => this.update(), 60000);
+
+        // Get our local IPs so we can resolve 127.0.0.1
+        Object.keys(os.networkInterfaces()).forEach(ifname => {
+            os.networkInterfaces()[ifname].forEach(iface => {
+                if (iface.family === 'IPv4') {
+                    this.localIps.push(iface.address);
+                }
+            });
+        });
+    }
+
+    findServer(ip: string) {
+        if (ip == "127.0.0.1") {
+            for (let localip of this.localIps) {
+                let s = this.serverList.find(x => x.address === localip);
+                if (s != null) {
+                    return s;
+                }
+            }
+        } else {
+            return this.serverList.find(x => x.address === ip);
+        }
+        return null;
     }
 
     update() {
         this.serverList = this.serverList.filter(server => {
-            if (server.timestamp + 10000 < new Date().getTime()) {
+            if (server.timestamp + 600000 < new Date().getTime()) {
                 console.log(`Purging ${server.address}:${server.port} due to inactivity`);
                 return false; // Purge old servers
             }
@@ -146,7 +172,7 @@ export class MPMasterServer {
             let minCPU = br.readU16();
             let buddyCount = br.readU8();
 
-            let sendServerList = this.serverList.filter(x => x.address != rinfo.address);
+            let sendServerList = this.serverList; //.filter(x => x.address != rinfo.address);
 
             if (sendServerList.length > 0) {
                 let packettotal = sendServerList.length;
@@ -242,8 +268,11 @@ export class MPMasterServer {
                     }
 
             let found = false;
+            let insaddr = rinfo.address;
+            if (this.localIps.includes(insaddr))
+                insaddr = "127.0.0.1";
             for (let i = 0; i < this.serverList.length; i++) {
-                if (this.serverList[i].address == rinfo.address && this.serverList[i].port == rinfo.port) {
+                if (this.serverList[i].address == insaddr && this.serverList[i].port == rinfo.port) {
                     this.serverList[i].info = info;
                     this.serverList[i].timestamp = new Date().getTime();
                     found = true;
@@ -252,8 +281,11 @@ export class MPMasterServer {
             }
 
             if (!found) {
+                let insaddr = rinfo.address;
+                if (this.localIps.includes(insaddr))
+                    insaddr = "127.0.0.1";
                 let serverInfo: MPServer = {
-                    address: rinfo.address,
+                    address: insaddr,
                     port: rinfo.port,
                     info: info,
                     timestamp: new Date().getTime()
@@ -306,7 +338,9 @@ export class MPMasterServer {
         if (cmd === PacketType.MasterServerRequestArrangedConnection) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.serverList.find(x => x.address === address);
+            let connectserver = this.findServer(address);
+            console.log(this.serverList);
+            console.log(address);
             if (connectserver == null) {
                 let buf = new BufferWriter();
                 buf.writeUInt8(PacketType.MasterServerArrangedConnectionRejected);
@@ -408,7 +442,7 @@ export class MPMasterServer {
             let flags = br.readU8();
             let key = br.readU32();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.serverList.find(x => x.address === address);
+            let connectserver = this.findServer(address);
             if (connectserver != null) {
                 console.log(`Pinging ${address} key ${key} ${flags}`);
                 this.gamePingRequests.set(key, {
@@ -431,7 +465,7 @@ export class MPMasterServer {
             let flags = br.readU8();
             let key = br.readU32();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.serverList.find(x => x.address === address);
+            let connectserver = this.findServer(address);
             if (connectserver != null) {
                 console.log(`Requesting info from ${address} key ${key} ${flags}`);
                 this.gameInfoRequests.set(key, {
@@ -519,7 +553,8 @@ export class MPMasterServer {
                     this.gameRelayRequests.set(id, {
                         address: rinfo.address,
                         port: rinfo.port,
-                        relay: relay
+                        relay: relay,
+                        mpserver: connectserver
                     })
 
                     let buf = new BufferWriter();
@@ -558,6 +593,21 @@ export class MPMasterServer {
                 let sendbuf = buf.getBuffer();
                 this.socket.send(sendbuf, relayRequest.port, relayRequest.address);
                 relayRequest.relay.connected++;
+
+                // Let the host know which relay to connect to, too
+                let buf2 = new BufferWriter();
+                buf2.writeUInt8(PacketType.MasterServerRelayJoinRequest);
+                buf2.writeUInt8(0); // Key
+                buf2.writeUInt32(0); // Flags
+                buf2.writeUInt16(id); // Id lol
+                buf2.writeUInt8(relayIpbits[0]);
+                buf2.writeUInt8(relayIpbits[1]);
+                buf2.writeUInt8(relayIpbits[2]);
+                buf2.writeUInt8(relayIpbits[3]);
+                buf2.writeUInt16(relayport);
+                let sendbuf2 = buf2.getBuffer();
+                this.socket.send(sendbuf2, relayRequest.mpserver.port, relayRequest.mpserver.address);
+
                 this.gameRelayRequests.delete(id);
             }
         }
