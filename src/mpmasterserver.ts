@@ -114,16 +114,16 @@ export class MPMasterServer {
         });
     }
 
-    findServer(ip: string) {
+    findServer(ip: string, port: number) {
         if (ip == "127.0.0.1") {
             for (let localip of this.localIps) {
-                let s = this.serverList.find(x => x.address === localip);
+                let s = this.serverList.find(x => x.address === localip && (port != 0 ? x.port === port : true));
                 if (s != null) {
                     return s;
                 }
             }
         } else {
-            return this.serverList.find(x => x.address === ip);
+            return this.serverList.find(x => x.address === ip && (port != 0 ? x.port === port : true));
         }
         return null;
     }
@@ -338,7 +338,8 @@ export class MPMasterServer {
         if (cmd === PacketType.MasterServerRequestArrangedConnection) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.findServer(address);
+            let port = br.readU16();
+            let connectserver = this.findServer(address, port);
             console.log(this.serverList);
             console.log(address);
             if (connectserver == null) {
@@ -439,10 +440,11 @@ export class MPMasterServer {
 
         if (cmd === PacketType.MasterServerGamePingRequest) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+            let port = br.readU16();
             let flags = br.readU8();
             let key = br.readU32();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.findServer(address);
+            let connectserver = this.findServer(address, port);
             if (connectserver != null) {
                 console.log(`Pinging ${address} key ${key} ${flags}`);
                 this.gamePingRequests.set(key, {
@@ -462,10 +464,11 @@ export class MPMasterServer {
 
         if (cmd === PacketType.MasterServerGameInfoRequest) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+            let port = br.readU16();
             let flags = br.readU8();
             let key = br.readU32();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.findServer(address);
+            let connectserver = this.findServer(address, port);
             if (connectserver != null) {
                 console.log(`Requesting info from ${address} key ${key} ${flags}`);
                 this.gameInfoRequests.set(key, {
@@ -533,8 +536,9 @@ export class MPMasterServer {
 
         if (cmd === PacketType.MasterServerRelayRequest) {
             let ipbits = [br.readU8(), br.readU8(), br.readU8(), br.readU8()];
+            let port = br.readU16();
             let address = `${ipbits[0]}.${ipbits[1]}.${ipbits[2]}.${ipbits[3]}`;
-            let connectserver = this.serverList.find(x => x.address === address);
+            let connectserver = this.findServer(address, port);
             if (connectserver != null) {
                 // Request a relay to give connection to this server
                 // Get the relay server with lowest connections
