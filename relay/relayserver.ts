@@ -31,6 +31,7 @@ enum PacketType {
     MasterServerRelayRequest = 66,
     MasterServerRelayResponse = 68,
     RelayDelete = 70,
+    MasterServerRelayReady = 72,
 }
 
 interface RelayInfo {
@@ -38,8 +39,10 @@ interface RelayInfo {
     srcIp: string,
     srcPort?: number,
     destIp: string,
-    destPort: number,
+    destPort?: number,
     lastUpdated: number
+    clientReady: boolean,
+    serverReady: boolean,
 }
 
 let currentClientId = 0;
@@ -134,14 +137,20 @@ export class MPRelayServer {
                 socket: udp.createSocket('udp4'),
                 srcIp: srcIp,
                 destIp: targetIp,
-                destPort: targetPort,
-                lastUpdated: Date.now()
+                lastUpdated: Date.now(),
+                clientReady: false,
+                serverReady: false
             };
 
             relay.socket.on('message', (msg, rinfo) => this.onRelayMessage(msg, rinfo, relay));
             relay.socket.on('error', (err) => this.onRelayError(err, relay!));
             relay.socket.bind(0, '0.0.0.0', () => callback(relay));
             this.relays.push(relay);
+        } else {
+            // We 'built' the relay but we need to do the handshake again
+            relay.clientReady = false;
+            relay.serverReady = false; 
+            callback(relay);
         }
 
         relay.lastUpdated = Date.now();
@@ -156,11 +165,34 @@ export class MPRelayServer {
 
     onRelayMessage(msg: Buffer, rinfo: udp.RemoteInfo, relay: RelayInfo) {
         relay.lastUpdated = Date.now();
-        if (rinfo.address == relay.srcIp && rinfo.port != relay.destPort) {
-            relay.srcPort = rinfo.port; // Update the source port for when we send the packet back
-            relay.socket.send(msg, relay.destPort, relay.destIp);
-        } else { // Relay back to the source IP
-            relay.socket.send(msg, relay.srcPort, relay.srcIp);
+        if (relay.clientReady && relay.serverReady) {
+            if (rinfo.address == relay.srcIp && rinfo.port == relay.srcPort) {
+                relay.socket.send(msg, relay.destPort, relay.destIp);
+            } else { // Relay back to the source IP
+                relay.socket.send(msg, relay.srcPort, relay.srcIp);
+            }
+        } else {
+            let isHost = msg.readUint8(0);
+            if (isHost) {
+                relay.destIp = rinfo.address;
+                relay.destPort = rinfo.port;
+                relay.serverReady = true;
+            } else {
+                relay.srcIp = rinfo.address;
+                relay.srcPort = rinfo.port;
+                relay.clientReady = true;
+            }
+
+            if (relay.serverReady && relay.clientReady) {
+                console.log(`Relay ${relay.srcIp}:${relay.srcPort} <--> ${relay.destIp}:${relay.destPort} ready!`);
+                // Send ACK to the client that the relay is ready
+                let bw = new BufferWriter();
+                bw.writeUInt8(PacketType.MasterServerRelayReady);
+                bw.writeUInt8(0); // Key
+                bw.writeUInt32(0); // Flags
+                let sendbuf = bw.getBuffer();
+                relay.socket.send(sendbuf, relay.srcPort, relay.srcIp);
+            }
         }
     }
 }

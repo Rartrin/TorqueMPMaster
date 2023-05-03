@@ -62,7 +62,7 @@ enum PacketType {
     MasterServerRelayRequest = 66,
     MasterServerRelayResponse = 68,
     RelayDelete = 70,
-    MasterServerRelayJoinRequest = 72,
+    MasterServerRelayReady = 72,
 }
 
 let currentClientId = 0;
@@ -584,6 +584,7 @@ export class MPMasterServer {
                 buf.writeUInt8(PacketType.MasterServerRelayResponse);
                 buf.writeUInt8(0); // Key
                 buf.writeUInt32(0); // Flags
+                buf.writeUInt8(0); // IsHost
                 let relayIpbits = relayRequest.relay.address.split(".").map(x => parseInt(x));
                 buf.writeUInt8(relayIpbits[0]);
                 buf.writeUInt8(relayIpbits[1]);
@@ -596,10 +597,10 @@ export class MPMasterServer {
 
                 // Let the host know which relay to connect to, too
                 let buf2 = new BufferWriter();
-                buf2.writeUInt8(PacketType.MasterServerRelayJoinRequest);
+                buf2.writeUInt8(PacketType.MasterServerRelayResponse);
                 buf2.writeUInt8(0); // Key
                 buf2.writeUInt32(0); // Flags
-                buf2.writeUInt16(id); // Id lol
+                buf2.writeUInt8(1); // IsHost
                 buf2.writeUInt8(relayIpbits[0]);
                 buf2.writeUInt8(relayIpbits[1]);
                 buf2.writeUInt8(relayIpbits[2]);
