@@ -197,9 +197,11 @@ export class MPMasterServer {
 
                     let ipbits = serveraddress.split('.');
 
+                    let isLocal = serveraddress == rinfo.address;
+
                     let buf = new BufferWriter();
                     buf.writeUInt8(PacketType.MasterServerListResponse); // MasterServerListResponse
-                    buf.writeUInt8(0);
+                    buf.writeUInt8(isLocal ? 1 : 0); // We are using flags to let know whether the server is local or not
                     buf.writeUInt32(key);
                     buf.writeUInt8(packetindex);
                     buf.writeUInt8(packettotal);
