@@ -172,7 +172,7 @@ export class MPMasterServer {
             let minCPU = br.readU16();
             let buddyCount = br.readU8();
 
-            let sendServerList = this.serverList; //.filter(x => x.address != rinfo.address);
+            let sendServerList = this.serverList.filter(x => (x.info.filterFlag & 8) == 0); // Show only public servers
 
             if (sendServerList.length > 0) {
                 let packettotal = sendServerList.length;
