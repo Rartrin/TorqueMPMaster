@@ -576,6 +576,14 @@ export class MPMasterServer {
                     let sendbuf = buf.getBuffer();
                     this.socket.send(sendbuf, relay.port, relay.address);
                 }
+            } else {
+                let buf = new BufferWriter();
+                buf.writeUInt8(PacketType.MasterServerArrangedConnectionRejected);
+                buf.writeUInt8(0); // Flags
+                buf.writeUInt32(0); // Key
+                buf.writeUInt8(0); // 0 = unknown host
+                let sendbuf = buf.getBuffer();
+                this.socket.send(sendbuf, rinfo.port, rinfo.address); // MasterServerRejectArrangedConnectRequest
             }
         }
 
