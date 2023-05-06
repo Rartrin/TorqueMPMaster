@@ -12,6 +12,7 @@ interface MPServer {
     info: {
         gameType: string,
         missionType: string,
+        inviteCode: string,
         maxPlayers: number,
         regionMask: number,
         version: number,
@@ -63,6 +64,8 @@ enum PacketType {
     MasterServerRelayResponse = 68,
     RelayDelete = 70,
     MasterServerRelayReady = 72,
+    MasterServerJoinInvite = 74,
+    MasterServerJoinInviteResponse = 76,
 }
 
 let currentClientId = 0;
@@ -163,6 +166,7 @@ export class MPMasterServer {
             let dummy = br.readU8();
             let gameType = br.readString();
             let missionType = br.readString();
+            let inviteCode = br.readString();
             let minPlayers = br.readU8();
             let maxPlayers = br.readU8();
             let regionMask = br.readU32();
@@ -245,6 +249,7 @@ export class MPMasterServer {
             let key = br.readU32();
             let gameType = br.readString();
             let missionType = br.readString();
+            let inviteCode = br.readString();
             let maxPlayers = br.readU8();
             let regionMask = br.readU32();
             let version = br.readU32();
@@ -259,6 +264,7 @@ export class MPMasterServer {
             let info = {
                         gameType: gameType,
                         missionType: missionType,
+                        inviteCode: inviteCode,
                         maxPlayers: maxPlayers,
                         regionMask: regionMask,
                         version: version,
@@ -632,6 +638,36 @@ export class MPMasterServer {
             if (relay != null) {
                 console.log(`Relay ${rinfo.address}:${rinfo.port} disconnected by user`);
                 relay.connected--;
+            }
+        }
+
+        if (cmd === PacketType.MasterServerJoinInvite) {
+            let invite = br.readString();
+            let server = this.serverList.find(x => x.info.inviteCode == invite);
+            if (server != null) {
+                let bw = new BufferWriter();
+                bw.writeUInt8(PacketType.MasterServerJoinInviteResponse);
+                bw.writeUInt8(0); // Key
+                bw.writeUInt32(0); // Flags
+                bw.writeUInt8(1); // Found
+                let ipbits = server.address.split(".").map(x => parseInt(x));
+                bw.writeUInt8(ipbits[0]);
+                bw.writeUInt8(ipbits[1]);
+                bw.writeUInt8(ipbits[2]);
+                bw.writeUInt8(ipbits[3]);
+                bw.writeUInt16(server.port);
+
+                let sendbuf = bw.getBuffer();
+                this.socket.send(sendbuf, rinfo.port, rinfo.address);
+            } else {
+                let bw = new BufferWriter();
+                bw.writeUInt8(PacketType.MasterServerJoinInviteResponse);
+                bw.writeUInt8(0); // Key
+                bw.writeUInt32(0); // Flags
+                bw.writeUInt8(0); // Found
+
+                let sendbuf = bw.getBuffer();
+                this.socket.send(sendbuf, rinfo.port, rinfo.address);
             }
         }
     }
