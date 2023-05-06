@@ -83,6 +83,8 @@ export class MPMasterServer {
     relayServers: RelayServer[] = []
     updateInterval: ReturnType<typeof setInterval>;
     localIps: string[] = []
+    banlist: string[] = []
+    banlistSet: Set<string> = new Set<string>();
 
     // Starts the Multiplayer Master Server
     initialize() {
@@ -92,6 +94,11 @@ export class MPMasterServer {
         this.socket.on('error', (err) => this.onError(err));
 
         let settings = JSON.parse(fs.readFileSync('settings.json', 'utf-8'))
+        this.banlist = settings.banlist;
+        this.banlistSet.clear();
+        this.banlist.forEach(ip => {
+            this.banlistSet.add(ip);
+        });
 
         let hostsplit = settings.masterIp.split(':'); // Naive but works for now
         let hostname = hostsplit[0];
@@ -107,6 +114,22 @@ export class MPMasterServer {
                     this.localIps.push(iface.address);
                 }
             });
+        });
+
+        // Banlist updating
+        fs.watch('settings.json', "utf-8", (evt, filename) => {
+            if (evt == 'change') {
+                try {
+                    let newSettings = JSON.parse(fs.readFileSync('settings.json', 'utf-8'));
+                    this.banlist = newSettings.banlist;
+                    this.banlistSet.clear();
+                    this.banlist.forEach(ip => {
+                        this.banlistSet.add(ip);
+                    });
+                } catch (e) {
+                    console.log("Failed to parse settings.json");
+                }
+            }
         });
     }
 
@@ -130,12 +153,20 @@ export class MPMasterServer {
                 console.log(`Purging ${server.address}:${server.port} due to inactivity`);
                 return false; // Purge old servers
             }
+            if (this.banlistSet.has(server.address)) {
+                console.log(`Purging ${server.address}:${server.port} due to ban`);
+                return false;
+            }
             return true;
         });
         this.relayServers = this.relayServers.filter(server => {
             if (server.timestamp + 10000 < new Date().getTime()) {
                 console.log(`Purging Relay ${server.address}:${server.port} due to inactivity`);
                 return false; // Purge old servers
+            }
+            if (this.banlistSet.has(server.address)) {
+                console.log(`Purging Relay ${server.address}:${server.port} due to ban`);
+                return false;
             }
             return true;
         });
@@ -154,6 +185,9 @@ export class MPMasterServer {
     // Received when someone sends a message
     onMessage(msg: Buffer, rinfo: udp.RemoteInfo) {
         let br = new BufferReader(msg.buffer);
+
+        if (this.banlistSet.has(rinfo.address))
+            return;
 
         let cmd = br.readU8();
 
