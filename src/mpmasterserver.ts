@@ -202,7 +202,6 @@ export class MPMasterServer {
             let dummy = br.readU8();
             let gameType = br.readString();
             let missionType = br.readString();
-            let inviteCode = br.readString();
             let minPlayers = br.readU8();
             let maxPlayers = br.readU8();
             let regionMask = br.readU32();
