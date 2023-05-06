@@ -33,7 +33,8 @@ interface ArrangedClient {
 interface RelayServer {
     address: string,
     port: number,
-    connected: number
+    connected: number,
+    timestamp: number
 }
 
 enum PacketType {
@@ -66,6 +67,7 @@ enum PacketType {
     MasterServerRelayReady = 72,
     MasterServerJoinInvite = 74,
     MasterServerJoinInviteResponse = 76,
+    RelayHeartbeat = 78,
 }
 
 let currentClientId = 0;
@@ -91,21 +93,12 @@ export class MPMasterServer {
 
         let settings = JSON.parse(fs.readFileSync('settings.json', 'utf-8'))
 
-        for (let relayHostname of settings.relays) {
-            let relayHostSplit = relayHostname.split(':');
-            this.relayServers.push({
-                address: relayHostSplit[0],
-                port: Number.parseInt(relayHostSplit[1]),
-                connected: 0
-            });
-        }
-
         let hostsplit = settings.masterIp.split(':'); // Naive but works for now
         let hostname = hostsplit[0];
         let port = Number.parseInt(hostsplit[1]);
 
         this.socket.bind(port, hostname);
-        this.updateInterval = setInterval(() => this.update(), 60000);
+        this.updateInterval = setInterval(() => this.update(), 10000);
 
         // Get our local IPs so we can resolve 127.0.0.1
         Object.keys(os.networkInterfaces()).forEach(ifname => {
@@ -133,8 +126,15 @@ export class MPMasterServer {
 
     update() {
         this.serverList = this.serverList.filter(server => {
-            if (server.timestamp + 600000 < new Date().getTime()) {
+            if (server.timestamp + 10000 < new Date().getTime()) {
                 console.log(`Purging ${server.address}:${server.port} due to inactivity`);
+                return false; // Purge old servers
+            }
+            return true;
+        });
+        this.relayServers = this.relayServers.filter(server => {
+            if (server.timestamp + 10000 < new Date().getTime()) {
+                console.log(`Purging Relay ${server.address}:${server.port} due to inactivity`);
                 return false; // Purge old servers
             }
             return true;
@@ -668,6 +668,22 @@ export class MPMasterServer {
 
                 let sendbuf = bw.getBuffer();
                 this.socket.send(sendbuf, rinfo.port, rinfo.address);
+            }
+        }
+
+        if (cmd === PacketType.RelayHeartbeat) {
+            let relay = this.relayServers.find(x => x.address === rinfo.address && x.port === rinfo.port);
+            if (relay != null) {
+                relay.timestamp = Date.now();
+            } else {
+                // Add relay
+                console.log(`Added relay ${rinfo.address}:${rinfo.port}`);
+                this.relayServers.push({
+                    address: rinfo.address,
+                    port: rinfo.port,
+                    connected: 0,
+                    timestamp: Date.now()
+                });
             }
         }
     }

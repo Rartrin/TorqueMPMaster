@@ -32,6 +32,7 @@ enum PacketType {
     MasterServerRelayResponse = 68,
     RelayDelete = 70,
     MasterServerRelayReady = 72,
+    RelayHeartbeat = 78,
 }
 
 interface RelayInfo {
@@ -61,7 +62,7 @@ export class MPRelayServer {
 
         let settings = JSON.parse(fs.readFileSync('settings.json', 'utf-8'))
 
-        let mastersplit = settings.masterIp.split(':'); // Naive but works for now
+        let mastersplit = settings.masterExternalIp.split(':'); // Naive but works for now
         this.masterServerAddress = mastersplit[0];
         this.masterServerPort = Number.parseInt(mastersplit[1]);
 
@@ -72,7 +73,13 @@ export class MPRelayServer {
         let hostname = hostsplit[0];
         let port = Number.parseInt(hostsplit[1]);
 
-        this.socket.bind(port, hostname);
+        this.socket.bind(port, hostname, () => {
+            // Heartbeat
+            let bw = new BufferWriter();
+            bw.writeUInt8(PacketType.RelayHeartbeat);
+            let sb = bw.getBuffer();
+            this.socket.send(sb, this.masterServerPort, this.masterServerAddress);
+        });
         this.updateInterval = setInterval(() => this.update(), 10000);
     }
 
@@ -90,6 +97,11 @@ export class MPRelayServer {
             }
             return true;
         });
+        // Do heartbeat too
+        let bw = new BufferWriter();
+        bw.writeUInt8(PacketType.RelayHeartbeat);
+        let sb = bw.getBuffer();
+        this.socket.send(sb, this.masterServerPort, this.masterServerAddress);
     }
 
     // Stops the server
