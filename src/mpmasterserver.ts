@@ -120,14 +120,16 @@ export class MPMasterServer {
         fs.watch('settings.json', "utf-8", (evt, filename) => {
             if (evt == 'change') {
                 try {
-                    let newSettings = JSON.parse(fs.readFileSync('settings.json', 'utf-8'));
+                    let conts = fs.readFileSync('settings.json', 'utf-8');
+                    let newSettings = JSON.parse(conts);
                     this.banlist = newSettings.banlist;
                     this.banlistSet.clear();
                     this.banlist.forEach(ip => {
                         this.banlistSet.add(ip);
                     });
+                    console.log("Reloaded settings.json");
                 } catch (e) {
-                    console.log("Failed to parse settings.json");
+                    // Pass
                 }
             }
         });
