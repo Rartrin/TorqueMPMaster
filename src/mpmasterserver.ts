@@ -211,7 +211,7 @@ export class MPMasterServer {
             let minCPU = br.readU16();
             let buddyCount = br.readU8();
 
-            let sendServerList = this.serverList.filter(x => (x.info.filterFlag & 8) == 0); // Show only public servers
+            let sendServerList = this.serverList.filter(x => (x.info.filterFlag & 8) == 0 && (x.info.playerCount < x.info.maxPlayers) && x.address != rinfo.address); // Show only remote public servers with available slots
 
             if (sendServerList.length > 0) {
                 let packettotal = sendServerList.length;
@@ -399,6 +399,10 @@ export class MPMasterServer {
                 let possibleAddresses = [
                     {
                         address: rinfo.address,
+                        port: rinfo.port + 2,
+                    },
+                    {
+                        address: rinfo.address,
                         port: rinfo.port + 1,
                     },
                     {
@@ -439,6 +443,10 @@ export class MPMasterServer {
             let client = this.arrangedClients.find(x => x.id === clientId);
             if (client != null) {
                 let possibleAddresses = [
+                    {
+                        address: rinfo.address,
+                        port: rinfo.port + 2,
+                    },
                     {
                         address: rinfo.address,
                         port: rinfo.port + 1,
