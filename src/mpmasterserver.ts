@@ -686,7 +686,7 @@ export class MPMasterServer {
 
         if (cmd === PacketType.MasterServerJoinInvite) {
             let invite = br.readString();
-            let server = this.serverList.find(x => x.info.inviteCode == invite);
+            let server = this.serverList.find(x => x.info.inviteCode == invite && x.address != rinfo.address);
             if (server != null) {
                 let bw = new BufferWriter();
                 bw.writeUInt8(PacketType.MasterServerJoinInviteResponse);
