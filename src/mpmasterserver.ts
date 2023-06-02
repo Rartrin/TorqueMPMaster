@@ -211,7 +211,20 @@ export class MPMasterServer {
             let minCPU = br.readU16();
             let buddyCount = br.readU8();
 
-            let sendServerList = this.serverList.filter(x => (x.info.filterFlag & 8) == 0 && (x.info.playerCount < x.info.maxPlayers) && x.address != rinfo.address); // Show only remote public servers with available slots
+            console.log(`Query: { gameType: "${gameType}", missionType: "${missionType}", minPlayers: ${minPlayers}, maxPlayers: ${maxPlayers}, regionMask: ${regionMask}, version: ${version}, filterFlag: ${filterFlag}, maxBots: ${maxBots}, minCPU: ${minCPU}, buddyCount: ${buddyCount} }`);
+
+            let sendServerList = this.serverList.filter(x => {
+                return (x.info.filterFlag & 8) == 0 &&
+                    (x.info.playerCount < x.info.maxPlayers) &&
+                    (x.address != rinfo.address) && 
+                    (x.info.gameType == gameType || gameType == "") &&
+                    (x.info.missionType == missionType || missionType == "" || missionType == "any") &&
+                    (x.info.playerCount >= minPlayers) &&
+                    (x.info.playerCount <= maxPlayers) &&
+                    (x.info.version >= version || version == 0) && 
+                    (x.info.regionMask & regionMask) &&
+                    (x.info.cpuSpeed >= minCPU || minCPU == 0)
+            }); // Show only remote public servers with available slots
 
             if (sendServerList.length > 0) {
                 let packettotal = sendServerList.length;
@@ -309,6 +322,8 @@ export class MPMasterServer {
                         playerCount: playerCount,
                         guidList: guidList
                     }
+
+            console.log(`Server Info (${rinfo.address}:${rinfo.port}): { gameType: "${gameType}", missionType: "${missionType}", maxPlayers: ${maxPlayers}, regionMask: ${regionMask}, version: ${version}, filterFlag: ${filterFlag}, botCount: ${botCount}, cpuSpeed: ${cpuSpeed} }`);
 
             let found = false;
             let insaddr = rinfo.address;
