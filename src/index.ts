@@ -1,8 +1,8 @@
 import { MPMasterServer } from "./mpmasterserver";
+import { WebServer } from "./server";
 
-console.log("Starting MP Master Server");
-let server = new MPMasterServer();
-server.initialize();
+let server = new WebServer();
+server.start();
 
 process.on('exit', () => {
 	console.log("Stopping...");

@@ -1,5 +1,7 @@
 {
     "masterIp": "0.0.0.0:1337",
     "masterExternalIp": "127.0.0.1:1337",
-    "relayIp": "0.0.0.0:2000"
+    "relayIp": "0.0.0.0:2000",
+    "banlist": [],
+    "apiServer": "0.0.0.0:3001"
 }
