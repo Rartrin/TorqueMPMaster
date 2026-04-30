@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TorqueMPCommon/TorqueMPCommon.csproj" Id="489fc944-ef8e-4e69-8dea-6d79f4776c01" />
+  <Project Path="TorqueMPMaster/TorqueMPMaster.csproj" />
+  <Project Path="TorqueMPRelay/TorqueMPRelay.csproj" Id="a3310eab-635c-4218-9ed5-06850d722348" />
+</Solution>
